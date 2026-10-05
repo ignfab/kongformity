@@ -1,0 +1,57 @@
+name: Rapport
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * *" # tous les jours à 6 h UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un seul déploiement à la fois, sans annuler celui en cours.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  rapport:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lancer le script et générer la page
+        # Le code de sortie 1 signale des écarts : c'est un résultat à publier, pas un échec.
+        run: |
+          mkdir -p site
+          python3 check_gpf_rate_limits.py > site/rapport.txt 2>&1 && code=0 || code=$?
+          if [ "$code" = 0 ]; then verdict="Tout concorde."; else verdict="Écarts ou erreurs (code de sortie $code)."; fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo '<!doctype html>'
+            echo '<html lang="fr"><head><meta charset="utf-8">'
+            echo '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            echo '<title>kongformity</title>'
+            echo '<style>body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}pre{overflow-x:auto}</style>'
+            echo '</head><body>'
+            echo "<h1>Limites d'usage de la Géoplateforme : documentation vs Kong</h1>"
+            echo "<p>$verdict Exécution du $(date -u '+%d/%m/%Y à %H:%M') UTC (<a href=\"$run_url\">journal</a>, <a href=\"rapport.txt\">texte brut</a>).</p>"
+            echo '<pre>'
+            python3 -c 'import html, sys; sys.stdout.write(html.escape(sys.stdin.read()))' < site/rapport.txt
+            echo '</pre></body></html>'
+          } > site/index.html
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
